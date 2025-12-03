@@ -3,7 +3,7 @@ name: Auto PR
 on:
   push:
     branches:
-      - "*"
+      - "**"
 
 jobs:
   pr:
