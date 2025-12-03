@@ -25,7 +25,7 @@ jobs:
       - name: Build Docker image
         if: steps.check_file.outputs.exists == 'true'
         run: |
-          echo "Dockerfile found. Building image..."
+          echo "Dockerfile found. Building image by the name my-image..."
           docker build -t my-image:latest .
 
       - name: No Dockerfile found
