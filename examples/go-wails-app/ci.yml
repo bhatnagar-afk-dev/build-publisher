@@ -1,0 +1,83 @@
+name: CI
+
+# Thin caller: the jobs live in bhatnagar-afk-dev/build-publisher.
+# PRs and pushes to main lint, test and build; pushing a `v*` tag also
+# publishes the build archives to a GitHub Release.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The other jobs are skipped (which counts as passing for required checks)
+  # when only docs changed.
+  changes:
+    uses: bhatnagar-afk-dev/build-publisher/.github/workflows/detect-changes.yml@v1
+    with:
+      ignore-patterns: |
+        docs/*
+        *.md
+        LICENSE
+        .github/ISSUE_TEMPLATE/*
+        .github/CODEOWNERS
+
+  lint-test:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    uses: bhatnagar-afk-dev/build-publisher/.github/workflows/go-ci.yml@v1
+    with:
+      node-version: "22"
+      node-cache-dependency-path: frontend/package-lock.json
+      apt-packages: libgtk-4-dev libwebkitgtk-6.0-dev
+      go-tools: &wails3 github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
+      # main.go embeds frontend/dist, so it must exist before vet/lint/test.
+      pre-commands: |
+        npm ci --prefix frontend
+        npm run build --prefix frontend
+      test-command: go test -race -coverprofile=coverage.out ./...
+      post-commands: |
+        npm run check --prefix frontend
+        wails3 generate bindings -clean=true -ts -i
+        git diff --exit-code -- frontend/bindings || {
+          echo "::error::frontend/bindings is stale. Run 'wails3 generate bindings -ts -i' and commit."
+          exit 1
+        }
+
+  integration:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    uses: bhatnagar-afk-dev/build-publisher/.github/workflows/kind-integration.yml@v1
+    with:
+      cluster-name: kuberoot
+      test-command: KUBEROOT_IT_CONTEXT=kind-kuberoot go test -race -tags integration -run Integration -v ./internal/...
+
+  build:
+    needs: lint-test
+    uses: bhatnagar-afk-dev/build-publisher/.github/workflows/build-native-app.yml@v1
+    with:
+      artifact-name: kuberoot
+      artifact-path: bin/
+      build-command: wails3 build
+      archive: ${{ github.ref_type == 'tag' }}
+      node-version: "22"
+      node-cache-dependency-path: frontend/package-lock.json
+      apt-packages: libgtk-4-dev libwebkitgtk-6.0-dev
+      go-tools: *wails3
+
+  release:
+    needs: [build, integration]
+    if: github.ref_type == 'tag'
+    permissions:
+      contents: write
+    uses: bhatnagar-afk-dev/build-publisher/.github/workflows/release-github.yml@v1
+    with:
+      artifact-name: kuberoot

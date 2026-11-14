@@ -1,0 +1,66 @@
+name: Detect changes
+
+# Reports whether a push or PR touched anything outside `ignore-patterns`, so
+# callers can skip expensive jobs on docs-only changes. Skipped jobs count as
+# passing for required status checks.
+
+on:
+  workflow_call:
+    inputs:
+      ignore-patterns:
+        description: Newline-separated shell `case` globs whose changes don't count as code.
+        type: string
+        default: |
+          docs/*
+          *.md
+          LICENSE
+    outputs:
+      code:
+        description: "'true' when a non-ignored file changed (always 'true' for tags or when no base commit is available)."
+        value: ${{ jobs.diff.outputs.code }}
+
+permissions:
+  contents: read
+
+jobs:
+  diff:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: diff
+        name: Check for non-ignored changes
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          IGNORE_PATTERNS: ${{ inputs.ignore-patterns }}
+        run: |
+          # Tags, new branches and force pushes have no usable base: run everything.
+          if [ "$GITHUB_REF_TYPE" = tag ] || [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          ignored() {
+            local pattern
+            while IFS= read -r pattern; do
+              [ -n "$pattern" ] || continue
+              # Unquoted on purpose: the pattern is a glob.
+              # shellcheck disable=SC2254
+              case "$1" in $pattern) return 0 ;; esac
+            done <<< "$IGNORE_PATTERNS"
+            return 1
+          }
+
+          code=false
+          while IFS= read -r f; do
+            if [ -n "$f" ] && ! ignored "$f"; then
+              echo "Code change: $f"
+              code=true
+            fi
+          done <<< "$(git diff --name-only "$BASE" "$GITHUB_SHA")"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          [ "$code" = true ] || echo "Only ignored paths changed; dependent jobs can be skipped."

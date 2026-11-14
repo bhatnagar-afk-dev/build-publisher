@@ -1,0 +1,70 @@
+name: Setup toolchain
+description: >-
+  Shared job setup used by every reusable workflow in this repo. Installs Go,
+  and optionally Node, Linux apt packages, Go tools and arbitrary commands.
+
+inputs:
+  go-version-file:
+    description: Path to go.mod (or .go-version) used to pick the Go version. Empty skips Go.
+    default: go.mod
+  node-version:
+    description: Node.js version to install. Empty skips Node.
+    default: ""
+  node-cache-dependency-path:
+    description: Lockfile path for the npm cache. Empty disables caching.
+    default: ""
+  apt-packages:
+    description: Space-separated apt packages to install. Only applied on Linux runners.
+    default: ""
+  go-tools:
+    description: Newline-separated `module@version` list passed to `go install`.
+    default: ""
+  setup-commands:
+    description: Extra shell commands to run after the toolchain is ready.
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - if: inputs.go-version-file != ''
+      uses: actions/setup-go@v7
+      with:
+        go-version-file: ${{ inputs.go-version-file }}
+
+    - if: inputs.node-version != '' && inputs.node-cache-dependency-path != ''
+      uses: actions/setup-node@v7
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: npm
+        cache-dependency-path: ${{ inputs.node-cache-dependency-path }}
+
+    - if: inputs.node-version != '' && inputs.node-cache-dependency-path == ''
+      uses: actions/setup-node@v7
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - if: inputs.apt-packages != '' && runner.os == 'Linux'
+      name: Install apt packages
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.apt-packages }}
+      run: |
+        sudo apt-get update
+        # Word splitting is intended: PACKAGES is a space-separated list.
+        # shellcheck disable=SC2086
+        sudo apt-get install -y $PACKAGES
+
+    - if: inputs.go-tools != ''
+      name: Install Go tools
+      shell: bash
+      env:
+        TOOLS: ${{ inputs.go-tools }}
+      run: |
+        while IFS= read -r tool; do
+          if [ -n "$tool" ]; then go install "$tool"; fi
+        done <<< "$TOOLS"
+
+    - if: inputs.setup-commands != ''
+      name: Run setup commands
+      shell: bash
+      run: ${{ inputs.setup-commands }}
