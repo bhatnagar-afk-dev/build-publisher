@@ -149,5 +149,7 @@ jobs:
         with:
           name: ${{ inputs.artifact-name }}-release-${{ runner.os }}-${{ matrix.arch || runner.arch }}
           path: ${{ steps.assets.outputs.dir }}
+          # The assets live in `.release/`, which upload-artifact treats as hidden.
+          include-hidden-files: true
           retention-days: ${{ inputs.retention-days }}
           if-no-files-found: error
