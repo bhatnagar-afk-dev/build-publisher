@@ -1,0 +1,53 @@
+name: Release to GitHub
+
+# Publishes the archives uploaded by build-native-app.yml (`archive: true`) to
+# a GitHub Release with a sha256 checksums file. Tags containing `-` (e.g.
+# v1.2.0-rc.1) are marked as prereleases. Re-running replaces existing assets.
+# The calling job must grant `contents: write`.
+
+on:
+  workflow_call:
+    inputs:
+      artifact-name:
+        description: Same `artifact-name` passed to build-native-app.yml.
+        type: string
+        required: true
+      tag:
+        description: Tag to release. Defaults to the triggering tag.
+        type: string
+        default: ""
+      draft:
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: ${{ inputs.artifact-name }}-release-*
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum -- * | tee checksums.txt
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+          DRAFT: ${{ inputs.draft }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+            exit 0
+          fi
+          flags=(--generate-notes --verify-tag)
+          [ "$DRAFT" = true ] && flags+=(--draft)
+          [[ "$TAG" == *-* ]] && flags+=(--prerelease)
+          gh release create "$TAG" "${flags[@]}" dist/*

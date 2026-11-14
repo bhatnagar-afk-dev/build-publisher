@@ -1,0 +1,79 @@
+name: Go CI
+
+# Lints and tests a Go module: setup -> pre-commands -> golangci-lint ->
+# test-command -> post-commands. Use pre/post commands for project-specific
+# steps such as building embedded assets or checking generated code.
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: Runner label.
+        type: string
+        default: ubuntu-latest
+      go-version-file:
+        type: string
+        default: go.mod
+      node-version:
+        description: Node.js version to install. Empty skips Node.
+        type: string
+        default: ""
+      node-cache-dependency-path:
+        type: string
+        default: ""
+      apt-packages:
+        description: Space-separated apt packages to install.
+        type: string
+        default: ""
+      go-tools:
+        description: Newline-separated `module@version` list passed to `go install`.
+        type: string
+        default: ""
+      setup-commands:
+        type: string
+        default: ""
+      pre-commands:
+        description: Commands run before linting, e.g. building assets the code embeds.
+        type: string
+        default: ""
+      golangci-lint-version:
+        description: golangci-lint version. Empty skips linting.
+        type: string
+        default: latest
+      test-command:
+        type: string
+        default: go test -race ./...
+      post-commands:
+        description: Extra checks run after tests, e.g. generated-code freshness.
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  lint-test:
+    name: Lint & test
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: bhatnagar-afk-dev/build-publisher/actions/setup@v1
+        with:
+          go-version-file: ${{ inputs.go-version-file }}
+          node-version: ${{ inputs.node-version }}
+          node-cache-dependency-path: ${{ inputs.node-cache-dependency-path }}
+          apt-packages: ${{ inputs.apt-packages }}
+          go-tools: ${{ inputs.go-tools }}
+          setup-commands: ${{ inputs.setup-commands }}
+      - if: inputs.pre-commands != ''
+        name: Pre-commands
+        run: ${{ inputs.pre-commands }}
+      - if: inputs.golangci-lint-version != ''
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: ${{ inputs.golangci-lint-version }}
+      - name: Test
+        run: ${{ inputs.test-command }}
+      - if: inputs.post-commands != ''
+        name: Post-commands
+        run: ${{ inputs.post-commands }}

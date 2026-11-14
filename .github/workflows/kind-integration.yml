@@ -1,0 +1,56 @@
+name: Kind integration tests
+
+# Runs a test command against a throwaway kind (Kubernetes-in-Docker) cluster.
+# The cluster's kubeconfig context is `kind-<cluster-name>`.
+
+on:
+  workflow_call:
+    inputs:
+      cluster-name:
+        type: string
+        default: kind
+      test-command:
+        description: Command run once the cluster is up. Set env vars inline.
+        type: string
+        required: true
+      go-version-file:
+        type: string
+        default: go.mod
+      node-version:
+        type: string
+        default: ""
+      node-cache-dependency-path:
+        type: string
+        default: ""
+      apt-packages:
+        type: string
+        default: ""
+      go-tools:
+        type: string
+        default: ""
+      setup-commands:
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    name: Integration (kind)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: bhatnagar-afk-dev/build-publisher/actions/setup@v1
+        with:
+          go-version-file: ${{ inputs.go-version-file }}
+          node-version: ${{ inputs.node-version }}
+          node-cache-dependency-path: ${{ inputs.node-cache-dependency-path }}
+          apt-packages: ${{ inputs.apt-packages }}
+          go-tools: ${{ inputs.go-tools }}
+          setup-commands: ${{ inputs.setup-commands }}
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: ${{ inputs.cluster-name }}
+      - name: Integration tests
+        run: ${{ inputs.test-command }}

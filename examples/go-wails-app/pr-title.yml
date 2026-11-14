@@ -1,0 +1,12 @@
+name: PR title
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  conventional-commit:
+    uses: bhatnagar-afk-dev/build-publisher/.github/workflows/pr-title.yml@v1
