@@ -1,14 +1,17 @@
 name: Build native app
 
 # Builds a native/desktop application on a matrix of runners and uploads the
-# output. With `archive: true` each runner's output is also packaged as
-# `<artifact-name>-<version>-<os>-<arch>.{zip,tar.gz}` and uploaded as
+# output as a CI artifact. With `release: true` each runner then also runs
+# `package-command` (e.g. building installers) and collects its release assets
+# -- a zip/tar.gz of the output and/or `package-files` -- named
+# `<artifact-name>[-<version>]-<os>-<arch>.<ext>`, uploaded as
 # `<artifact-name>-release-<os>-<arch>` for release-github.yml to publish.
 #
-# `runner-overrides` customises individual runners, e.g. building a universal
-# macOS binary on Apple Silicon instead of running a separate Intel job:
+# `runner-overrides` customises individual runners, e.g. a universal macOS
+# build on Apple Silicon with its own installer:
 #   runner-overrides: '[{"runner": "macos-latest", "arch": "universal",
-#                        "build-command": "make universal"}]'
+#                        "build-command": "make universal",
+#                        "package-command": "make dmg", "package-files": "bin/*.dmg"}]'
 
 on:
   workflow_call:
@@ -19,10 +22,11 @@ on:
         default: '["ubuntu-latest", "macos-latest", "windows-latest"]'
       runner-overrides:
         description: >-
-          JSON array of `{runner, arch?, build-command?}` objects. Each one
-          applies to the matching entry in `runners`: `build-command` replaces
-          the default for that runner, and `arch` replaces runner.arch in
-          artifact and archive names (e.g. `universal`).
+          JSON array of `{runner, arch?, build-command?, package-command?,
+          package-files?}` objects. Each one applies to the matching entry in
+          `runners`: the commands and files replace the defaults for that
+          runner, and `arch` replaces runner.arch in artifact and asset names
+          (e.g. `universal`).
         type: string
         default: "[]"
       build-command:
@@ -40,14 +44,38 @@ on:
       retention-days:
         type: number
         default: 7
-      archive:
-        description: Also package the output for a release.
+      release:
+        description: Package and collect release assets after the build.
         type: boolean
         default: false
-      version:
-        description: Version used in archive names. Defaults to the ref name.
+      archive:
+        description: Deprecated alias for `release`.
+        type: boolean
+        default: false
+      package-command:
+        description: >-
+          Release mode only: command run after the build, e.g. to create
+          installers. RELEASE_VERSION holds the version (`version` input).
         type: string
         default: ""
+      package-files:
+        description: "Release mode only: newline-separated globs of files (e.g. installers) to attach to the release."
+        type: string
+        default: ""
+      release-archive:
+        description: "Release mode only: also attach a zip/tar.gz of `artifact-path`."
+        type: boolean
+        default: true
+      version:
+        description: Release version. Defaults to the ref name (the tag on tag pushes).
+        type: string
+        default: ""
+      versioned-asset-names:
+        description: >-
+          Put the version in release asset names. Turn off for stable names,
+          so `releases/latest/download/<asset>` links always work.
+        type: boolean
+        default: true
       go-version-file:
         type: string
         default: go.mod
@@ -101,18 +129,25 @@ jobs:
           retention-days: ${{ inputs.retention-days }}
           if-no-files-found: error
 
-      - if: inputs.archive
-        id: archive
-        uses: bhatnagar-afk-dev/build-publisher/actions/archive@v1
+      - if: (inputs.release || inputs.archive) && (matrix.package-command || inputs.package-command)
+        name: Package
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
+        run: ${{ matrix.package-command || inputs.package-command }}
+      - if: inputs.release || inputs.archive
+        id: assets
+        uses: bhatnagar-afk-dev/build-publisher/actions/release-assets@v1
         with:
-          path: ${{ inputs.artifact-path }}
           name: ${{ inputs.artifact-name }}
-          version: ${{ inputs.version || github.ref_name }}
+          version: ${{ inputs.versioned-asset-names && (inputs.version || github.ref_name) || '' }}
           arch: ${{ matrix.arch }}
-      - if: inputs.archive
+          archive-path: ${{ inputs.release-archive && inputs.artifact-path || '' }}
+          files: ${{ matrix.package-files || inputs.package-files }}
+      - if: inputs.release || inputs.archive
         uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.artifact-name }}-release-${{ runner.os }}-${{ matrix.arch || runner.arch }}
-          path: ${{ steps.archive.outputs.file }}
+          path: ${{ steps.assets.outputs.dir }}
           retention-days: ${{ inputs.retention-days }}
           if-no-files-found: error
