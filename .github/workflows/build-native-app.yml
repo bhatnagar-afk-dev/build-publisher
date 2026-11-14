@@ -4,6 +4,11 @@ name: Build native app
 # output. With `archive: true` each runner's output is also packaged as
 # `<artifact-name>-<version>-<os>-<arch>.{zip,tar.gz}` and uploaded as
 # `<artifact-name>-release-<os>-<arch>` for release-github.yml to publish.
+#
+# `runner-overrides` customises individual runners, e.g. building a universal
+# macOS binary on Apple Silicon instead of running a separate Intel job:
+#   runner-overrides: '[{"runner": "macos-latest", "arch": "universal",
+#                        "build-command": "make universal"}]'
 
 on:
   workflow_call:
@@ -12,7 +17,16 @@ on:
         description: JSON array of runner labels to build on.
         type: string
         default: '["ubuntu-latest", "macos-latest", "windows-latest"]'
+      runner-overrides:
+        description: >-
+          JSON array of `{runner, arch?, build-command?}` objects. Each one
+          applies to the matching entry in `runners`: `build-command` replaces
+          the default for that runner, and `arch` replaces runner.arch in
+          artifact and archive names (e.g. `universal`).
+        type: string
+        default: "[]"
       build-command:
+        description: Default build command for every runner.
         type: string
         required: true
       artifact-path:
@@ -20,7 +34,7 @@ on:
         type: string
         required: true
       artifact-name:
-        description: Artifact base name, usually the app name. Uploaded as `<name>-<runner.os>-<runner.arch>`, so several runners of one OS (e.g. Apple Silicon and Intel macOS) can coexist.
+        description: Artifact base name, usually the app name. Uploaded as `<name>-<runner.os>-<arch>`, so several runners of one OS can coexist.
         type: string
         required: true
       retention-days:
@@ -64,6 +78,8 @@ jobs:
       fail-fast: false
       matrix:
         runner: ${{ fromJSON(inputs.runners) }}
+        # Matrix `include` merges each override into the runner it names.
+        include: ${{ fromJSON(inputs.runner-overrides) }}
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
@@ -77,10 +93,10 @@ jobs:
           setup-commands: ${{ inputs.setup-commands }}
       - name: Build
         shell: bash
-        run: ${{ inputs.build-command }}
+        run: ${{ matrix.build-command || inputs.build-command }}
       - uses: actions/upload-artifact@v7
         with:
-          name: ${{ inputs.artifact-name }}-${{ runner.os }}-${{ runner.arch }}
+          name: ${{ inputs.artifact-name }}-${{ runner.os }}-${{ matrix.arch || runner.arch }}
           path: ${{ inputs.artifact-path }}
           retention-days: ${{ inputs.retention-days }}
           if-no-files-found: error
@@ -92,10 +108,11 @@ jobs:
           path: ${{ inputs.artifact-path }}
           name: ${{ inputs.artifact-name }}
           version: ${{ inputs.version || github.ref_name }}
+          arch: ${{ matrix.arch }}
       - if: inputs.archive
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ inputs.artifact-name }}-release-${{ runner.os }}-${{ runner.arch }}
+          name: ${{ inputs.artifact-name }}-release-${{ runner.os }}-${{ matrix.arch || runner.arch }}
           path: ${{ steps.archive.outputs.file }}
           retention-days: ${{ inputs.retention-days }}
           if-no-files-found: error

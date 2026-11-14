@@ -13,6 +13,9 @@ inputs:
   version:
     description: Version embedded in the archive name, e.g. the tag.
     required: true
+  arch:
+    description: Arch label for the archive name. Defaults to the runner's (amd64, arm64, ...); set e.g. `universal` for fat binaries.
+    default: ""
 
 outputs:
   file:
@@ -29,16 +32,17 @@ runs:
         NAME: ${{ inputs.name }}
         VERSION: ${{ inputs.version }}
         RUNNER_OS_NAME: ${{ runner.os }}
+        ARCH: ${{ inputs.arch }}
         RUNNER_ARCH_NAME: ${{ runner.arch }}
       run: |
         set -euo pipefail
         os=$(echo "$RUNNER_OS_NAME" | tr '[:upper:]' '[:lower:]')
-        case "$RUNNER_ARCH_NAME" in
+        case "${ARCH:-$RUNNER_ARCH_NAME}" in
           X64) arch=amd64 ;;
           ARM64) arch=arm64 ;;
           X86) arch=386 ;;
           ARM) arch=arm ;;
-          *) arch=$(echo "$RUNNER_ARCH_NAME" | tr '[:upper:]' '[:lower:]') ;;
+          *) arch=$(echo "${ARCH:-$RUNNER_ARCH_NAME}" | tr '[:upper:]' '[:lower:]') ;;
         esac
 
         out_dir="$PWD/.archive"
