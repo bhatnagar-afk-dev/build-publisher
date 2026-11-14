@@ -24,6 +24,12 @@ and `if:`. [`examples/go-wails-app`](examples/go-wails-app) is a complete
 caller (used by kuberoot): change detection → lint/test + integration → 3-OS
 build → GitHub Release on `v*` tags.
 
+Make a single gate job (`CI OK` in the example) the only required status
+check in branch protection. Calling a reusable workflow prefixes its check
+names (`lint-test / Lint & test`), and a skipped call reports only the caller
+job's name, so requiring the individual jobs leaves PRs stuck on checks that
+never report.
+
 Permissions come from the caller. Grant the least that each job needs, e.g.
 `contents: write` only on the job that calls `release-github.yml`.
 
