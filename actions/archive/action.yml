@@ -1,5 +1,6 @@
 name: Archive build output
 description: >-
+  Deprecated: use actions/release-assets, which this repo's workflows now use.
   Packages a file or directory into `<name>-<version>-<os>-<arch>` as a .zip
   (Windows, macOS) or .tar.gz (Linux), ready to attach to a release.
 

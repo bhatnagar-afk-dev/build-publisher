@@ -1,0 +1,114 @@
+name: Collect release assets
+description: >-
+  Gathers a runner's release assets into `.release/`, named
+  `<name>[-<version>]-<os>-<arch>.<ext>`: an optional zip/tar.gz of a build
+  output plus any installer files (dmg, exe, AppImage, deb, ...).
+
+inputs:
+  name:
+    description: Base name of the assets, usually the app name.
+    required: true
+  version:
+    description: Version embedded in asset names. Empty gives stable names (e.g. for `releases/latest/download/...` links).
+    default: ""
+  arch:
+    description: Arch label for asset names. Defaults to the runner's (amd64, arm64, ...); set e.g. `universal` for fat binaries.
+    default: ""
+  archive-path:
+    description: File or directory to package as .zip (Windows, macOS) or .tar.gz (Linux). Empty skips the archive.
+    default: ""
+  files:
+    description: Newline-separated globs of ready-made files (installers) to include, renamed to the asset naming scheme.
+    default: ""
+
+outputs:
+  dir:
+    description: Directory holding the collected assets, relative to the workspace.
+    value: .release
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        NAME: ${{ inputs.name }}
+        VERSION: ${{ inputs.version }}
+        ARCH: ${{ inputs.arch }}
+        ARCHIVE_PATH: ${{ inputs.archive-path }}
+        FILES: ${{ inputs.files }}
+        RUNNER_OS_NAME: ${{ runner.os }}
+        RUNNER_ARCH_NAME: ${{ runner.arch }}
+      run: |
+        set -euo pipefail
+        shopt -s nullglob
+
+        lower() { echo "$1" | tr '[:upper:]' '[:lower:]'; }
+        os=$(lower "$RUNNER_OS_NAME")
+        case "${ARCH:-$RUNNER_ARCH_NAME}" in
+          X64) arch=amd64 ;;
+          ARM64) arch=arm64 ;;
+          X86) arch=386 ;;
+          ARM) arch=arm ;;
+          *) arch=$(lower "${ARCH:-$RUNNER_ARCH_NAME}") ;;
+        esac
+        prefix="$NAME${VERSION:+-$VERSION}-$os-$arch"
+
+        out="$PWD/.release"
+        mkdir -p "$out"
+
+        # Extension of a file name, keeping multi-part ones like .tar.gz whole.
+        ext_of() {
+          local base e
+          base=$(basename "$1")
+          for e in pkg.tar.zst tar.gz tar.xz tar.zst tar.bz2; do
+            if [[ "$base" == *."$e" ]]; then echo ".$e"; return; fi
+          done
+          if [[ "$base" == *.* ]]; then echo ".${base##*.}"; fi
+        }
+
+        add() {
+          local dest="$out/$prefix$(ext_of "$1")"
+          if [ -e "$dest" ]; then
+            echo "::error::Both '$1' and an earlier file map to $(basename "$dest"); narrow the globs."
+            exit 1
+          fi
+          cp "$1" "$dest"
+          echo "Added $(basename "$dest") (from $1)"
+        }
+
+        if [ -n "$ARCHIVE_PATH" ]; then
+          if [ -d "$ARCHIVE_PATH" ]; then
+            src_dir="$ARCHIVE_PATH"; entries=.
+          else
+            src_dir=$(dirname "$ARCHIVE_PATH"); entries=$(basename "$ARCHIVE_PATH")
+          fi
+          case "$os" in
+            linux)   file="$prefix.tar.gz"; (cd "$src_dir" && tar -czf "$out/$file" "$entries") ;;
+            windows) file="$prefix.zip";    (cd "$src_dir" && 7z a -tzip -bso0 "$out/$file" "$entries") ;;
+            *)       file="$prefix.zip";    (cd "$src_dir" && zip -qry "$out/$file" "$entries") ;;
+          esac
+          echo "Added $file (archive of $ARCHIVE_PATH)"
+        fi
+
+        while IFS= read -r pattern; do
+          [ -n "$pattern" ] || continue
+          # Unquoted on purpose: the pattern is a glob.
+          # shellcheck disable=SC2206
+          matches=($pattern)
+          if [ ${#matches[@]} -eq 0 ]; then
+            echo "::error::No files match '$pattern'."
+            exit 1
+          fi
+          for f in "${matches[@]}"; do
+            if [ ! -f "$f" ]; then
+              echo "::error::'$f' is not a file; package directories with archive-path."
+              exit 1
+            fi
+            add "$f"
+          done
+        done <<< "$FILES"
+
+        if [ -z "$(ls -A "$out")" ]; then
+          echo "::error::No release assets were produced; set archive-path and/or files."
+          exit 1
+        fi

@@ -43,11 +43,39 @@ Names follow `<verb>-<target>.yml`, so different kinds of build or publish
 | [`detect-changes.yml`](.github/workflows/detect-changes.yml) | Tells whether a push/PR changed anything outside `ignore-patterns`. Always `true` on tags or when there is no base commit. | `ignore-patterns` | `code` |
 | [`go-ci.yml`](.github/workflows/go-ci.yml) | setup → `pre-commands` → golangci-lint → `test-command` → `post-commands` | `pre-commands`, `golangci-lint-version` (empty skips), `test-command`, `post-commands`, `runs-on` | |
 | [`kind-integration.yml`](.github/workflows/kind-integration.yml) | Runs `test-command` against a kind cluster (context `kind-<cluster-name>`). | `cluster-name`, `test-command` | |
-| [`build-native-app.yml`](.github/workflows/build-native-app.yml) | Builds a native/desktop app on a runner matrix and uploads `<artifact-name>-<runner.os>-<runner.arch>`. With `archive: true`, also uploads `<name>-<version>-<os>-<arch>.{zip,tar.gz}` for release. | `runners` (JSON), `runner-overrides` (JSON: per-runner `build-command`/`arch`, e.g. a universal macOS build), `build-command`, `artifact-path`, `artifact-name`, `archive`, `version`, `retention-days` | |
-| [`release-github.yml`](.github/workflows/release-github.yml) | Publishes the archives from `build-native-app.yml` plus `checksums.txt` to a GitHub Release. Tags containing `-` become prereleases; re-runs replace assets. Needs `contents: write`. | `artifact-name`, `tag`, `draft` | |
+| [`build-native-app.yml`](.github/workflows/build-native-app.yml) | Builds a native/desktop app on a runner matrix and uploads `<artifact-name>-<runner.os>-<arch>`. With `release: true`, also runs `package-command` and collects release assets (see below). | `runners` (JSON), `runner-overrides` (JSON), `build-command`, `artifact-path`, `artifact-name`, `release`, `package-command`, `package-files`, `release-archive`, `version`, `versioned-asset-names`, `retention-days` | |
+| [`release-github.yml`](.github/workflows/release-github.yml) | Publishes the release assets from `build-native-app.yml` plus `checksums.txt` to a GitHub Release. Tags containing `-` become prereleases; re-runs replace assets. Needs `contents: write`. | `artifact-name`, `tag`, `draft` | |
 | [`pr-title.yml`](.github/workflows/pr-title.yml) | Enforces Conventional Commits PR titles. Call from `pull_request_target`. | `types`, `require-scope` | |
 
 Every workflow that runs project code also accepts the setup inputs below.
+
+### Release assets (`build-native-app.yml`)
+
+Release mode (`release: true`; `archive: true` is a deprecated alias) adds
+these steps to every runner after the CI artifact is uploaded:
+
+1. **Package:** runs `package-command`, e.g. to build installers. The
+   `RELEASE_VERSION` env var holds the version (`version`, default: the tag).
+2. **Collect:** gathers a zip/tar.gz of `artifact-path` (`release-archive`,
+   default on) plus every file matching `package-files`. Each one is renamed
+   to `<artifact-name>[-<version>]-<os>-<arch>.<ext>`, e.g.
+   `kuberoot-macos-universal.dmg`. Two files mapping to the same name fail
+   the job.
+3. **Upload:** as `<artifact-name>-release-<os>-<arch>`, which
+   `release-github.yml` publishes.
+
+With `versioned-asset-names: false` the names carry no version, so
+`https://github.com/<owner>/<repo>/releases/latest/download/<asset>` always
+points at the newest release.
+
+`runner-overrides` entries can set `arch`, `build-command`, `package-command`
+and `package-files` for a single runner. Gate `release` on tags (and,
+optionally, on `workflow_dispatch` for a packaging dry run that uploads the
+assets as artifacts without publishing):
+
+```yaml
+release: ${{ github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' }}
+```
 
 ### Shared setup inputs
 
@@ -65,7 +93,8 @@ All of these go through the [`actions/setup`](actions/setup/action.yml) composit
 ## Actions
 
 - [`actions/setup`](actions/setup/action.yml): the toolchain setup shown above.
-- [`actions/archive`](actions/archive/action.yml): packages a file or directory as `<name>-<version>-<os>-<arch>`, zip on Windows/macOS and tar.gz on Linux.
+- [`actions/release-assets`](actions/release-assets/action.yml): collects a runner's release assets (archive and/or installer files) under the naming scheme above.
+- [`actions/archive`](actions/archive/action.yml): **deprecated**, use `actions/release-assets`. Packages a file or directory as `<name>-<version>-<os>-<arch>`, zip on Windows/macOS and tar.gz on Linux.
 
 ## Versioning
 
