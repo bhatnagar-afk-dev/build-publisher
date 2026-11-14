@@ -20,7 +20,7 @@ on:
         type: string
         required: true
       artifact-name:
-        description: Artifact base name, usually the app name. Uploaded as `<name>-<runner.os>`.
+        description: Artifact base name, usually the app name. Uploaded as `<name>-<runner.os>-<runner.arch>`, so several runners of one OS (e.g. Apple Silicon and Intel macOS) can coexist.
         type: string
         required: true
       retention-days:
@@ -80,7 +80,7 @@ jobs:
         run: ${{ inputs.build-command }}
       - uses: actions/upload-artifact@v7
         with:
-          name: ${{ inputs.artifact-name }}-${{ runner.os }}
+          name: ${{ inputs.artifact-name }}-${{ runner.os }}-${{ runner.arch }}
           path: ${{ inputs.artifact-path }}
           retention-days: ${{ inputs.retention-days }}
           if-no-files-found: error
